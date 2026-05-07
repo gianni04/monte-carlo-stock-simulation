@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 from scipy import stats
 import os
 from datetime import date, timedelta
-import pandas_market_calendars as mcal
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -60,19 +59,9 @@ print("Log-return mean : " + str(round(mu*252*100, 2)) + "% / year")
 print("Volatility      : " + str(round(sigma*np.sqrt(252)*100, 2)) + "% / year")
 print("Skewness: " + str(round(skew, 4)) + "  |  Kurtosis: " + str(round(kurt, 4)))
 
-# ---- Generate future trading dates (Euronext Paris) ----
-try:
-    nyse = mcal.get_calendar("XPAR")
-    schedule = nyse.schedule(
-        start_date=str(ENTRY_DATE),
-        end_date=str(ENTRY_DATE + timedelta(days=400))
-    )
-    future_dates = list(schedule.index[:HORIZON])
-except Exception:
-    # fallback: business days
-    future_dates = list(pd.bdate_range(start=str(ENTRY_DATE), periods=HORIZON))
-
-end_date_sim = future_dates[-1].strftime("%Y-%m-%d") if future_dates else "unknown"
+# ---- Future trading dates: business days (Mon-Fri) ----
+future_dates = list(pd.bdate_range(start=str(ENTRY_DATE), periods=HORIZON))
+end_date_sim = future_dates[-1].strftime("%Y-%m-%d")
 print("Projection : " + str(ENTRY_DATE) + " -> " + end_date_sim)
 
 # Risk metrics (historical)
@@ -194,11 +183,10 @@ fig4.show()
 print("Step 4 done.  VaR 95%: " + str(round(var95_lev,2)) + " EUR | CVaR 95%: " + str(round(cvar95_lev,2)) + " EUR")
 
 # =============================================================
-# SIMULATIONS - 4 MODELS with REAL FUTURE DATES
+# SIMULATIONS - 4 MODELS
 # =============================================================
 np.random.seed(42)
 
-# Jump Diffusion parameters
 jump_threshold = 3 * sigma
 jumps_detected = log_ret[np.abs(log_ret) > jump_threshold]
 lambda_j = len(jumps_detected) / len(log_ret)
@@ -210,7 +198,6 @@ log_ret_arr  = log_ret.values
 
 print("\nJump Diffusion: lambda=" + str(round(lambda_j*252,2)) + " jumps/yr | mu_j=" + str(round(mu_j*100,3)) + "% | sigma_j=" + str(round(sigma_j*100,3)) + "%")
 
-# Simulate all 4 models
 paths_gbm   = np.zeros((HORIZON, SIMULATIONS))
 paths_stud  = np.zeros((HORIZON, SIMULATIONS))
 paths_jump  = np.zeros((HORIZON, SIMULATIONS))
@@ -241,9 +228,8 @@ colors_models = ["cyan", "orange", "red", "limegreen"]
 print("All 4 models computed.")
 
 # =============================================================
-# CHART 5 - MAIN PROJECTION: Portfolio value with REAL DATES
+# CHART 5 - Portfolio projection avec vraies dates
 # =============================================================
-# Use Jump Diffusion as main model
 port_lev = np.zeros((HORIZON, SIMULATIONS))
 port_1x  = np.zeros((HORIZON, SIMULATIONS))
 sl_hits  = 0
@@ -271,13 +257,12 @@ pp5x, pp50x, pp95x = np.percentile(final_1x,  [5, 50, 95])
 prob_profit_lev = float(np.mean(final_lev > INVESTMENT) * 100)
 prob_profit_1x  = float(np.mean(final_1x  > INVESTMENT) * 100)
 
-# Chart with real dates
 fig5 = go.Figure()
 for pct, col, dash in [(5, "red", "dot"), (50, "white", "solid"), (95, "limegreen", "dot")]:
     fig5.add_trace(go.Scatter(
         x=future_dates,
         y=np.percentile(port_1x, pct, axis=1),
-        name=str(pct)+"th pct (1x - no leverage)",
+        name=str(pct)+"th pct (1x - sans levier)",
         line=dict(color=col, width=1.5, dash=dash),
         hovertemplate="%{x|%d %b %Y}<br><b>%{y:.2f} EUR</b><extra>"+str(pct)+"th 1x</extra>"))
     fig5.add_trace(go.Scatter(
@@ -311,7 +296,7 @@ fig5.show()
 print("Step 5 done.")
 
 # =============================================================
-# CHART 6 - Prix de l'action projete (4 modeles, vraies dates)
+# CHART 6 - Prix projete 4 modeles avec vraies dates
 # =============================================================
 fig6 = go.Figure()
 for (mname, paths), col in zip(models.items(), colors_models):
@@ -322,28 +307,21 @@ for (mname, paths), col in zip(models.items(), colors_models):
         line=dict(color=col, width=2.5),
         hovertemplate="%{x|%d %b %Y}<br>%{y:.2f} EUR<extra>" + mname + " median</extra>"))
     fig6.add_trace(go.Scatter(x=future_dates, y=p5, name=mname + " 5th",
-        line=dict(color=col, width=0.7, dash="dot"), showlegend=False,
-        hovertemplate="%{x|%d %b %Y}<br>%{y:.2f} EUR<extra>" + mname + " 5th</extra>"))
+        line=dict(color=col, width=0.7, dash="dot"), showlegend=False))
     fig6.add_trace(go.Scatter(x=future_dates, y=p95, name=mname + " 95th",
-        line=dict(color=col, width=0.7, dash="dot"), showlegend=False,
-        hovertemplate="%{x|%d %b %Y}<br>%{y:.2f} EUR<extra>" + mname + " 95th</extra>"))
+        line=dict(color=col, width=0.7, dash="dot"), showlegend=False))
 fig6.add_hline(y=S0, line_dash="dash", line_color="white",
     annotation_text="Prix entree: " + str(round(S0,2)) + " EUR")
 fig6.update_layout(
-    title="<b>" + NAME + " - Prix projete: comparaison des 4 modeles</b><br>"
-          "Entree: " + str(ENTRY_DATE) + " @ " + str(round(S0,2)) + " EUR",
-    xaxis_title="Date",
-    yaxis_title="Prix de l'action (EUR)",
-    hovermode="x unified",
-    template="plotly_dark",
-    height=550
-)
+    title="<b>" + NAME + " - Prix projete: 4 modeles</b><br>Entree: " + str(ENTRY_DATE) + " @ " + str(round(S0,2)) + " EUR",
+    xaxis_title="Date", yaxis_title="Prix (EUR)",
+    hovermode="x unified", template="plotly_dark", height=550)
 fig6.write_html("output/6_prix_projete_4_modeles.html")
 fig6.show()
 print("Step 6 done.")
 
 # =============================================================
-# CHART 7 - Distribution finale des 4 modeles
+# CHART 7 - Distribution finale
 # =============================================================
 fig7 = go.Figure()
 for (mname, paths), col in zip(models.items(), colors_models):
@@ -360,7 +338,7 @@ fig7.show()
 print("Step 7 done.")
 
 # =============================================================
-# CHART 8 - Barchart comparatif par modele
+# CHART 8 - Barchart comparatif
 # =============================================================
 model_names = list(models.keys())
 worsts  = [round(float(np.percentile(models[m][-1,:], 5)),  2) for m in model_names]
@@ -395,20 +373,20 @@ print("-"*60)
 print("Sharpe: " + str(round(sharpe,3)) + "  | Sortino: " + str(round(sortino,3)) + "  | Calmar: " + str(round(calmar,3)))
 print("Max Drawdown historique : " + str(round(max_dd*100,2)) + "%")
 print("-"*60)
-print("Prix final projete (Jump Diffusion):")
+print("Prix final projete par modele:")
 for m in model_names:
     w  = round(float(np.percentile(models[m][-1,:],  5)), 2)
     md = round(float(np.percentile(models[m][-1,:], 50)), 2)
     b  = round(float(np.percentile(models[m][-1,:], 95)), 2)
     pnl_med = round((md - S0) * shares_1x, 2)
-    print("  " + (m+" "*20)[:16] + " worst: "+str(w).rjust(6)+" | median: "+str(md).rjust(6)+" | best: "+str(b).rjust(6)+" EUR  (PnL median 1x: "+str(pnl_med)+" EUR)")
+    print("  " + (m+" "*20)[:16] + " worst: "+str(w).rjust(6)+" | median: "+str(md).rjust(6)+" | best: "+str(b).rjust(6)+" EUR  (PnL median: "+str(pnl_med)+" EUR)")
 print("-"*60)
-print("Portefeuille " + str(INVESTMENT) + " EUR - Jump Diffusion (1x vs " + str(LEVERAGE) + "x + stop-loss " + str(int(STOP_LOSS*100)) + "%):")
-print("  Worst  (5th)  1x: " + str(round(pp5x,2)) + " EUR (" + str(round((pp5x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp5,2)) + " EUR (" + str(round((pp5/INVESTMENT-1)*100,1)) + "%)")
-print("  Median (50th) 1x: " + str(round(pp50x,2)) + " EUR (" + str(round((pp50x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp50,2)) + " EUR (" + str(round((pp50/INVESTMENT-1)*100,1)) + "%)")
-print("  Best   (95th) 1x: " + str(round(pp95x,2)) + " EUR (" + str(round((pp95x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp95,2)) + " EUR (" + str(round((pp95/INVESTMENT-1)*100,1)) + "%)")
-print("  Stop-loss declenche: " + str(round(sl_hits/SIMULATIONS*100,1)) + "% des simulations")
-print("  Probabilite de profit (1x) : " + str(round(prob_profit_1x,1)) + "%")
-print("  Probabilite de profit (" + str(LEVERAGE) + "x) : " + str(round(prob_profit_lev,1)) + "%")
+print("Portefeuille " + str(INVESTMENT) + " EUR - Jump Diffusion (1x vs " + str(LEVERAGE) + "x + SL " + str(int(STOP_LOSS*100)) + "%):")
+print("  Worst  1x: " + str(round(pp5x,2)) + " EUR (" + str(round((pp5x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp5,2)) + " EUR (" + str(round((pp5/INVESTMENT-1)*100,1)) + "%)")
+print("  Median 1x: " + str(round(pp50x,2)) + " EUR (" + str(round((pp50x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp50,2)) + " EUR (" + str(round((pp50/INVESTMENT-1)*100,1)) + "%)")
+print("  Best   1x: " + str(round(pp95x,2)) + " EUR (" + str(round((pp95x/INVESTMENT-1)*100,1)) + "%)  | " + str(LEVERAGE) + "x: " + str(round(pp95,2)) + " EUR (" + str(round((pp95/INVESTMENT-1)*100,1)) + "%)")
+print("  Stop-loss declenche : " + str(round(sl_hits/SIMULATIONS*100,1)) + "% des simulations")
+print("  Prob. profit (1x)   : " + str(round(prob_profit_1x,1)) + "%")
+print("  Prob. profit (" + str(LEVERAGE) + "x)   : " + str(round(prob_profit_lev,1)) + "%")
 print("="*60)
 print("8 charts HTML sauvegardes dans /output")
